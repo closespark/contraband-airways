@@ -39,7 +39,8 @@ function ProductionService:_tick()
             local gen = def.Effects.PassiveGeneration
             if not gen then continue end
 
-            local level = math.max(entry.level or 1, 1)
+            local level = entry.level or 0
+            if level <= 0 then continue end
             for resourceId, amountPerLevel in gen do
                 ResourceService:Add(resourceId, amountPerLevel * level)
             end

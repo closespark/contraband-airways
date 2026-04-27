@@ -107,8 +107,8 @@ local function maxStoredAt(hubId: string): number
     local BuildService = Knit.GetService("BuildService")
     local hangarLevel  = BuildService:GetStructureLevel(hubId, "Hangar")
     local lrLevel      = BuildService:GetStructureLevel(hubId, "LongRangeHangar")
-    -- Hangar: 2 / 5 / 8 planes per level 1 / 2 / 3
-    local cap = hangarLevel >= 3 and 8 or hangarLevel >= 2 and 5 or hangarLevel >= 1 and 2 or 1
+    local HANGAR_CAPS  = { [0] = 1, [1] = 2, [2] = 5, [3] = 8 }
+    local cap = HANGAR_CAPS[math.min(hangarLevel, 3)]
     cap += lrLevel * 3
     return cap
 end
@@ -303,19 +303,14 @@ function FleetService:UpgradePlane(fleetId: string): (boolean, string?)
         return false, "Not enough resources to upgrade to " .. upgDef.DisplayName
     end
 
-    self:_setState(data, fleetId, "Upgrading")
-
-    -- Apply the upgrade after half the delivery time
-    task.delay(upgDef.DeliveryTime * 0.5, function()
-        local d2 = getEmpireData()
-        if not d2 then return end
-        local e2 = fleet(d2)[fleetId]
-        if not e2 then return end
-        e2.planeType   = upgradeTo
-        e2.durability  = upgDef.Durability
-        self:_setState(d2, fleetId, "Stored")
-    end)
-
+    -- Persist the upgrade completion time so it survives server restarts
+    -- (polled alongside plane deliveries in _pollDeliveries).
+    entry.state              = "Upgrading"
+    entry.orderedAt          = os.clock()
+    entry.deliveryTime       = math.ceil(upgDef.DeliveryTime * 0.5)
+    -- Stash the target type so _pollDeliveries knows what to switch to.
+    entry.pendingUpgradeTo   = upgradeTo
+    self.Client.PlaneStateChanged:FireAll(fleetId, "Upgrading")
     return true, nil
 end
 
@@ -348,13 +343,29 @@ function FleetService:_pollDeliveries()
 
     local now = os.clock()
     for fleetId, entry in fleet(data) do
-        if entry.state == "Ordered" and entry.orderedAt and entry.deliveryTime then
+        if (entry.state == "Ordered" or entry.state == "Upgrading")
+            and entry.orderedAt and entry.deliveryTime
+        then
             if (now - entry.orderedAt) >= entry.deliveryTime then
-                entry.orderedAt    = nil
-                entry.deliveryTime = nil
-                entry.state        = "Delivered"
-                self.Client.PlaneDelivered:FireAll(fleetId)
-                self.Client.PlaneStateChanged:FireAll(fleetId, "Delivered")
+                if entry.state == "Upgrading" then
+                    -- Complete the plane upgrade using the persisted target type
+                    local upgradeTo = entry.pendingUpgradeTo
+                    if upgradeTo and PlaneData[upgradeTo] then
+                        entry.planeType  = upgradeTo
+                        entry.durability = PlaneData[upgradeTo].Durability
+                    end
+                    entry.pendingUpgradeTo = nil
+                    entry.orderedAt        = nil
+                    entry.deliveryTime     = nil
+                    entry.state            = "Stored"
+                    self.Client.PlaneStateChanged:FireAll(fleetId, "Stored")
+                else
+                    entry.orderedAt    = nil
+                    entry.deliveryTime = nil
+                    entry.state        = "Delivered"
+                    self.Client.PlaneDelivered:FireAll(fleetId)
+                    self.Client.PlaneStateChanged:FireAll(fleetId, "Delivered")
+                end
             end
         end
     end

@@ -423,15 +423,13 @@ function EmpireService:KnitInit()
 
     -- Migrate legacy BlackMoney into Resources.BlackMoney (one-time data migration).
     -- Existing saves may have non-zero data.BlackMoney from before the multi-resource
-    -- schema was added.  After migration the legacy field is zeroed so it doesn't
-    -- double-count if code still reads it.
+    -- schema was added.  Add any legacy value on top of what's already in Resources,
+    -- then zero the legacy field so it doesn't double-count on future saves.
     task.defer(function()
         local data = self:GetEmpireData()
         if not data then return end
         if data.BlackMoney and data.BlackMoney > 0 and data.Resources then
-            if (data.Resources.BlackMoney or 0) == 0 then
-                data.Resources.BlackMoney = data.BlackMoney
-            end
+            data.Resources.BlackMoney = (data.Resources.BlackMoney or 0) + data.BlackMoney
             data.BlackMoney = 0
         end
     end)
