@@ -128,18 +128,20 @@ function UpgradeService:GetTotalHeatDecayBonus(
     hubLayouts    : { [string]: { [string]: any } },
     globalUpgrades: { [string]: number }
 ): number
+    hubLayouts     = hubLayouts     or {}
+    globalUpgrades = globalUpgrades or {}
     local bonus = 0
     for _, layout in hubLayouts do
         for uid, info in layout do
             if type(info) == "table" and info.level then
                 local def = UpgradeData[uid]
-                if def then bonus += def.HeatDecayBonus * info.level end
+                if def then bonus += (def.HeatDecayBonus or 0) * info.level end
             end
         end
     end
     for uid, level in globalUpgrades do
         local def = UpgradeData[uid]
-        if def then bonus += def.HeatDecayBonus * level end
+        if def then bonus += (def.HeatDecayBonus or 0) * level end
     end
     return bonus
 end
