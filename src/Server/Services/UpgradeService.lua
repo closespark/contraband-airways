@@ -140,8 +140,10 @@ function UpgradeService:GetTotalHeatDecayBonus(
         end
     end
     for uid, level in globalUpgrades do
-        local def = UpgradeData[uid]
-        if def then bonus += (def.HeatDecayBonus or 0) * level end
+        if type(level) == "number" and level > 0 then
+            local def = UpgradeData[uid]
+            if def then bonus += (def.HeatDecayBonus or 0) * level end
+        end
     end
     return bonus
 end
