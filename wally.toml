@@ -1,0 +1,18 @@
+[package]
+name        = "closespark/contraband-airways"
+version     = "0.1.0"
+registry    = "https://github.com/UpliftGames/wally-index"
+realm       = "shared"
+description = "Cartoon tycoon smuggling game combining Knit + ProfileService + Fusion"
+
+# ─── Core framework ────────────────────────────────────────────────────────────
+# Knit  – clean Knit Service / Controller architecture (sleitnick/knit)
+# ProfileService – session-locked DataStore saving (madstudioroblox/profileservice)
+# Fusion – reactive UI state for the overhead map and cargo panel (elttob/fusion)
+# Signal – typed event objects used inside services (sleitnick/signal)
+
+[dependencies]
+Knit           = "sleitnick/knit@1.5.2"
+ProfileService = "madstudioroblox/profileservice@1.4.0"
+Fusion         = "elttob/fusion@0.2.0"
+Signal         = "sleitnick/signal@1.5.0"
