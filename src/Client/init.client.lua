@@ -8,6 +8,7 @@ local Knit = require(ReplicatedStorage.Packages.Knit)
 require(script.Controllers.CameraController)
 require(script.Controllers.MapController)
 require(script.Controllers.CargoController)
+require(script.Controllers.BuildController)
 
 Knit.Start()
     :andThen(function()

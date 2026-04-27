@@ -168,8 +168,9 @@ function UpgradeService.Client:PurchaseUpgrade(
     upgradeId: string,
     hubName  : string
 ): (boolean, number | string)
-    local EmpireService = Knit.GetService("EmpireService")
-    local empireData    = EmpireService:GetEmpireData()
+    local EmpireService   = Knit.GetService("EmpireService")
+    local ResourceService = Knit.GetService("ResourceService")
+    local empireData      = EmpireService:GetEmpireData()
     if not empireData then return false, "Empire data not loaded" end
 
     local def = UpgradeData[upgradeId]
@@ -196,15 +197,18 @@ function UpgradeService.Client:PurchaseUpgrade(
     local currentLevel = upgradesRef[upgradeId] or 0
     local cost = self.Server:GetUpgradeCost(upgradeId, currentLevel)
 
+    -- Read money from ResourceService (single source of truth)
+    local blackMoney = ResourceService:Get("BlackMoney")
+
     local ok, result = self.Server:PurchaseUpgrade(
         upgradeId, hubName,
-        empireData.BlackMoney, upgradesRef,
+        blackMoney, upgradesRef,
         empireData.Tier
     )
 
     if ok then
-        -- Deduct cost via EmpireService (single source of truth for money)
-        EmpireService:SpendMoney(cost)
+        -- Deduct cost via ResourceService
+        ResourceService:Spend("BlackMoney", cost)
         -- Write new level back into the persistent hub layout
         if not def.IsGlobal then
             local layout = empireData.HubLayouts[hubName]

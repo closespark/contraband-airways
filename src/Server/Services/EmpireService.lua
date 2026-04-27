@@ -84,32 +84,38 @@ end
 
 -- ─────────────────────────────────────────────────────────────────────────────
 -- Money management  (tycoon-kit income pattern)
+-- AddMoney / SpendMoney delegate to ResourceService (single source of truth).
+-- Both methods keep firing MoneyChanged for any existing listeners.
 -- ─────────────────────────────────────────────────────────────────────────────
 
 function EmpireService:AddMoney(amount: number)
+    local ResourceService = Knit.GetService("ResourceService")
+    ResourceService:Add("BlackMoney", amount)
+
     local data = self:GetEmpireData()
     if not data then return end
-
-    data.BlackMoney += amount
-    self.Client.MoneyChanged:FireAll(data.BlackMoney)
+    self.Client.MoneyChanged:FireAll(data.Resources.BlackMoney)
     self.Client.EmpireDataChanged:FireAll(data)
     self:_checkTierUnlock(data)
 end
 
 function EmpireService:SpendMoney(amount: number): boolean
-    local data = self:GetEmpireData()
-    if not data then return false end
-    if data.BlackMoney < amount then return false end
+    local ResourceService = Knit.GetService("ResourceService")
+    local ok = ResourceService:Spend("BlackMoney", amount)
 
-    data.BlackMoney -= amount
-    self.Client.MoneyChanged:FireAll(data.BlackMoney)
-    self.Client.EmpireDataChanged:FireAll(data)
-    return true
+    local data = self:GetEmpireData()
+    if data then
+        self.Client.MoneyChanged:FireAll(data.Resources.BlackMoney)
+        self.Client.EmpireDataChanged:FireAll(data)
+    end
+    return ok
 end
 
 function EmpireService:_checkTierUnlock(data: any)
+    -- Read from Resources.BlackMoney (new) with legacy fallback for old saves
+    local money = (data.Resources and data.Resources.BlackMoney) or data.BlackMoney or 0
     for tier = 3, 2, -1 do
-        if data.BlackMoney >= TIER_THRESHOLDS[tier] and data.Tier < tier then
+        if money >= TIER_THRESHOLDS[tier] and data.Tier < tier then
             data.Tier = tier
             for _, hubName in (TIER_HUB_UNLOCKS[tier] or {}) do
                 if not data.UnlockedHubs[hubName] then
@@ -118,6 +124,11 @@ function EmpireService:_checkTierUnlock(data: any)
                 end
             end
             self.Client.TierUnlocked:FireAll(tier)
+            -- Let UnlockService grant any newly eligible unlocks
+            task.defer(function()
+                local UnlockService = Knit.GetService("UnlockService")
+                UnlockService:CheckUnlocks(data)
+            end)
         end
     end
 end
@@ -141,9 +152,11 @@ function EmpireService:LaunchRun(player: Player, planeId: string, routeName: str
         return
     end
 
-    local PlaneService  = Knit.GetService("PlaneService")
-    local RouteService  = Knit.GetService("RouteService")
-    local HeatService   = Knit.GetService("HeatService")
+    local PlaneService    = Knit.GetService("PlaneService")
+    local RouteService    = Knit.GetService("RouteService")
+    local HeatService     = Knit.GetService("HeatService")
+    local ResourceService = Knit.GetService("ResourceService")
+    local BuildService    = Knit.GetService("BuildService")
 
     local planeData = PlaneService:GetPlaneData(planeId)
     if not planeData then
@@ -157,8 +170,33 @@ function EmpireService:LaunchRun(player: Player, planeId: string, routeName: str
         return
     end
 
+    local origin   = planeData.hubOrigin
+    local routeDef = RouteData[routeName]
+    if not routeDef then
+        warn("[EmpireService] LaunchRun: unknown route", routeName)
+        return
+    end
+
+    -- ── Economy-gating checks (new fields; all optional for backward compat) ──
+
+    -- Required structures at the origin hub
+    if routeDef.RequiredStructures then
+        for _, uid in routeDef.RequiredStructures do
+            if BuildService:GetStructureState(origin, uid) ~= "Built" then
+                warn("[EmpireService] LaunchRun: missing required structure", uid, "at", origin)
+                return
+            end
+        end
+    end
+
+    -- Fuel cost
+    local fuelCost = routeDef.FuelCost or 0
+    if fuelCost > 0 and not ResourceService:Spend("Fuel", fuelCost) then
+        warn("[EmpireService] LaunchRun: not enough Fuel (need", fuelCost .. ")")
+        return
+    end
+
     -- Gather hub upgrades for the origin hub
-    local origin      = planeData.hubOrigin
     local hubLayout   = data.HubLayouts[origin] or {}
     local hubUpgrades: { [string]: number } = {}
     for uid, info in hubLayout do
@@ -167,11 +205,18 @@ function EmpireService:LaunchRun(player: Player, planeId: string, routeName: str
         end
     end
 
-    local routeDef = RouteData[routeName]
-
     -- ── onComplete ────────────────────────────────────────────────────────────
     local function onComplete(payout: number)
         self:AddMoney(payout)
+
+        -- Flat heat gain from route definition
+        if routeDef.HeatGain and routeDef.HeatGain > 0 then
+            HeatService:AddHeat(
+                routeDef.HeatGain,
+                origin,
+                routeDef.HeatMultiplier or DEFAULT_HEAT_MULTIPLIER
+            )
+        end
 
         -- Heat accumulation scaled by cargo type
         for _, manifest in planeData.cargo do
@@ -180,10 +225,14 @@ function EmpireService:LaunchRun(player: Player, planeId: string, routeName: str
                 HeatService:AddHeat(
                     cd.HeatOnSuccess * manifest.amount,
                     origin,
-                    routeDef and routeDef.HeatMultiplier or DEFAULT_HEAT_MULTIPLIER
+                    routeDef.HeatMultiplier or DEFAULT_HEAT_MULTIPLIER
                 )
             end
         end
+
+        -- Mark route as completed for unlock checks
+        if not data.CompletedRoutes then data.CompletedRoutes = {} end
+        data.CompletedRoutes[routeName] = true
 
         -- Per-player contribution stats
         local pp = self._playerProfiles[player.UserId]
@@ -201,6 +250,12 @@ function EmpireService:LaunchRun(player: Player, planeId: string, routeName: str
         end
 
         self.Client.RunCompleted:FireAll(planeId, payout, true)
+
+        -- Run unlock check after a successful run (new routes may open)
+        task.defer(function()
+            local UnlockService = Knit.GetService("UnlockService")
+            UnlockService:CheckUnlocks(data)
+        end)
 
         -- Clean up the plane after a short visual delay
         task.delay(3, function()
@@ -236,12 +291,110 @@ function EmpireService:LaunchRun(player: Player, planeId: string, routeName: str
     )
 end
 
+--- Fleet-based launch: uses FleetService to spawn a registered fleet plane and
+--- then runs the same route logic as LaunchRun.
+function EmpireService:LaunchFleetRun(player: Player, fleetId: string, routeName: string)
+    local FleetService = Knit.GetService("FleetService")
+    local robloxId, err = FleetService:PrepareForFlight(fleetId)
+    if not robloxId then
+        warn("[EmpireService] LaunchFleetRun: PrepareForFlight failed:", err)
+        return
+    end
+
+    -- Wrap onComplete / onBust to also call FleetService:ReturnFromFlight
+    local data = self:GetEmpireData()
+    local routeDef = RouteData[routeName]
+
+    local RouteService    = Knit.GetService("RouteService")
+    local HeatService     = Knit.GetService("HeatService")
+    local ResourceService = Knit.GetService("ResourceService")
+    local BuildService    = Knit.GetService("BuildService")
+    local PlaneService    = Knit.GetService("PlaneService")
+
+    if not data or not routeDef then
+        warn("[EmpireService] LaunchFleetRun: missing data or route")
+        FleetService:ReturnFromFlight(fleetId, 0)
+        return
+    end
+
+    local planeData = PlaneService:GetPlaneData(robloxId)
+    if not planeData then
+        warn("[EmpireService] LaunchFleetRun: plane model missing after spawn")
+        FleetService:ReturnFromFlight(fleetId, 0)
+        return
+    end
+
+    -- Required structures check
+    if routeDef.RequiredStructures then
+        local origin = planeData.hubOrigin
+        for _, uid in routeDef.RequiredStructures do
+            if BuildService:GetStructureState(origin, uid) ~= "Built" then
+                warn("[EmpireService] LaunchFleetRun: missing structure", uid)
+                FleetService:ReturnFromFlight(fleetId, 0)
+                return
+            end
+        end
+    end
+
+    -- Fuel check
+    local fuelCost = routeDef.FuelCost or 0
+    if fuelCost > 0 and not ResourceService:Spend("Fuel", fuelCost) then
+        warn("[EmpireService] LaunchFleetRun: not enough Fuel")
+        FleetService:ReturnFromFlight(fleetId, 0)
+        return
+    end
+
+    local origin      = planeData.hubOrigin
+    local hubLayout   = data.HubLayouts[origin] or {}
+    local hubUpgrades: { [string]: number } = {}
+    for uid, info in hubLayout do
+        if type(info) == "table" and info.level then hubUpgrades[uid] = info.level end
+    end
+
+    local function onComplete(payout: number)
+        self:AddMoney(payout)
+        if routeDef.HeatGain and routeDef.HeatGain > 0 then
+            HeatService:AddHeat(routeDef.HeatGain, origin, routeDef.HeatMultiplier or DEFAULT_HEAT_MULTIPLIER)
+        end
+        for _, manifest in planeData.cargo do
+            local cd = CargoData[manifest.cargoType]
+            if cd then
+                HeatService:AddHeat(cd.HeatOnSuccess * manifest.amount, origin, routeDef.HeatMultiplier or DEFAULT_HEAT_MULTIPLIER)
+            end
+        end
+        if not data.CompletedRoutes then data.CompletedRoutes = {} end
+        data.CompletedRoutes[routeName] = true
+        FleetService:ReturnFromFlight(fleetId, 0)
+        self.Client.RunCompleted:FireAll(robloxId, payout, true)
+        task.defer(function()
+            local UnlockService = Knit.GetService("UnlockService")
+            UnlockService:CheckUnlocks(data)
+        end)
+    end
+
+    local function onBust(_waypointIdx: number)
+        for _, manifest in planeData.cargo do
+            local cd = CargoData[manifest.cargoType]
+            if cd then HeatService:AddHeat(cd.HeatOnBust * manifest.amount, origin) end
+        end
+        -- Busted planes take durability damage
+        FleetService:ReturnFromFlight(fleetId, 40)
+        self.Client.RunCompleted:FireAll(robloxId, 0, false)
+    end
+
+    RouteService:StartFlight(robloxId, routeName, hubUpgrades, data.GlobalUpgrades, onComplete, onBust)
+end
+
 -- ─────────────────────────────────────────────────────────────────────────────
 -- Client-facing wrappers
 -- ─────────────────────────────────────────────────────────────────────────────
 
 function EmpireService.Client:LaunchRun(player: Player, planeId: string, routeName: string)
     self.Server:LaunchRun(player, planeId, routeName)
+end
+
+function EmpireService.Client:LaunchFleetRun(player: Player, fleetId: string, routeName: string)
+    self.Server:LaunchFleetRun(player, fleetId, routeName)
 end
 
 function EmpireService.Client:GetEmpireData(_player: Player)
@@ -268,7 +421,24 @@ function EmpireService:KnitInit()
         warn("[EmpireService] Failed to load empire profile!")
     end
 
-    -- Wire Heat decay bonus into HeatService once all services are initialised
+    -- Migrate legacy BlackMoney into Resources.BlackMoney (one-time data migration).
+    -- Existing saves may have non-zero data.BlackMoney from before the multi-resource
+    -- schema was added.  After migration the legacy field is zeroed so it doesn't
+    -- double-count if code still reads it.
+    task.defer(function()
+        local data = self:GetEmpireData()
+        if not data then return end
+        if data.BlackMoney and data.BlackMoney > 0 and data.Resources then
+            if (data.Resources.BlackMoney or 0) == 0 then
+                data.Resources.BlackMoney = data.BlackMoney
+            end
+            data.BlackMoney = 0
+        end
+    end)
+
+    -- Wire Heat decay bonus into HeatService once all services are initialised.
+    -- Pass both HubLayouts (legacy UpgradeData buildings) so the decay formula
+    -- continues working unchanged.
     task.defer(function()
         local HeatService    = Knit.GetService("HeatService")
         local UpgradeService = Knit.GetService("UpgradeService")
