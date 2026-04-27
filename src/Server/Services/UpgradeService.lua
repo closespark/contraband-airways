@@ -122,6 +122,28 @@ function UpgradeService:GetDefenceBonus(
     return math.min(bonus, DEFENCE_BONUS_CAP)
 end
 
+--- Sum the total HeatDecayBonus granted by all hub and global upgrades.
+--- Used by HeatService's decay-bonus callback (registered in EmpireService:KnitInit).
+function UpgradeService:GetTotalHeatDecayBonus(
+    hubLayouts    : { [string]: { [string]: any } },
+    globalUpgrades: { [string]: number }
+): number
+    local bonus = 0
+    for _, layout in hubLayouts do
+        for uid, info in layout do
+            if type(info) == "table" and info.level then
+                local def = UpgradeData[uid]
+                if def then bonus += def.HeatDecayBonus * info.level end
+            end
+        end
+    end
+    for uid, level in globalUpgrades do
+        local def = UpgradeData[uid]
+        if def then bonus += def.HeatDecayBonus * level end
+    end
+    return bonus
+end
+
 --- All upgrade IDs available at or below a given empire tier.
 function UpgradeService:GetAvailableUpgrades(empireTier: number): { string }
     local result = {}

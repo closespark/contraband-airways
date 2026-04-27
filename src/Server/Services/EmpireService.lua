@@ -22,7 +22,6 @@ local ProfileService = require(ServerScriptService.Packages.ProfileService)
 
 local ProfileTemplate = require(ReplicatedStorage.ContraBandShared.ProfileTemplate)
 local CargoData       = require(ReplicatedStorage.ContraBandShared.Data.CargoData)
-local UpgradeData     = require(ReplicatedStorage.ContraBandShared.Data.UpgradeData)
 local RouteData       = require(ReplicatedStorage.ContraBandShared.Data.RouteData)
 
 -- ─────────────────────────────────────────────────────────────────────────────
@@ -271,28 +270,12 @@ function EmpireService:KnitInit()
 
     -- Wire Heat decay bonus into HeatService once all services are initialised
     task.defer(function()
-        local HeatService = Knit.GetService("HeatService")
+        local HeatService    = Knit.GetService("HeatService")
+        local UpgradeService = Knit.GetService("UpgradeService")
         HeatService:SetDecayBonusCallback(function(): number
             local d = self:GetEmpireData()
             if not d then return 0 end
-
-            local bonus = 0
-            -- Per-hub upgrade bonuses
-            for _, layout in d.HubLayouts do
-                for uid, info in layout do
-                    if type(info) == "table" and info.level then
-                        local def = UpgradeData[uid]
-                        if def then bonus += def.HeatDecayBonus * info.level end
-                    end
-                end
-            end
-            -- Global upgrade bonuses
-            for uid, level in d.GlobalUpgrades do
-                local def = UpgradeData[uid]
-                if def then bonus += def.HeatDecayBonus * level end
-            end
-
-            return bonus
+            return UpgradeService:GetTotalHeatDecayBonus(d.HubLayouts, d.GlobalUpgrades)
         end)
     end)
 end
