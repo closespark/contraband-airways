@@ -1,0 +1,33 @@
+{
+    "name": "contraband-airways",
+    "tree": {
+        "$className": "DataModel",
+
+        "ServerScriptService": {
+            "$className": "ServerScriptService",
+            "ContraBandServer": {
+                "$path": "src/Server"
+            }
+        },
+
+        "ReplicatedStorage": {
+            "$className": "ReplicatedStorage",
+            "ContraBandShared": {
+                "$path": "src/Shared"
+            },
+            "Packages": {
+                "$path": "Packages"
+            }
+        },
+
+        "StarterPlayer": {
+            "$className": "StarterPlayer",
+            "StarterPlayerScripts": {
+                "$className": "StarterPlayerScripts",
+                "ContraBandClient": {
+                    "$path": "src/Client"
+                }
+            }
+        }
+    }
+}
