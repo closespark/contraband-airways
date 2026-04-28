@@ -121,6 +121,8 @@ function PlaneService:SpawnPlane(hubName: string, planeType: string?): string?
     self._planeCounter += 1
     local planeId = "Plane_" .. self._planeCounter
 
+    -- Name the model after the planeId so client UI can find it cheaply.
+    planeModel.Name = planeId
     planeModel:SetAttribute("PlaneId", planeId)
 
     self._planes[planeId] = {

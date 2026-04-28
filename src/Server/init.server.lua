@@ -9,6 +9,7 @@ local Knit = require(ReplicatedStorage.Packages.Knit)
 -- Order matters: services lower in the list may call Knit.GetService() on
 -- those above, but only after KnitStart fires (they use task.defer / Knit
 -- lazy lookup — safe either way).
+require(script.Services.WorldService)        -- creates workspace map + hubs/pads
 require(script.Services.PlaneService)
 require(script.Services.RouteService)
 require(script.Services.HeatService)

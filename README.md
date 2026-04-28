@@ -159,7 +159,7 @@ EmpireService:LaunchRun
 ### Steps
 
 ```bash
-# 1. Install Wally packages (creates Packages/ folder in ReplicatedStorage)
+# 1. Install Wally packages (creates ./Packages for Rojo)
 wally install
 
 # 2. Start Rojo server
@@ -168,6 +168,33 @@ rojo serve default.project.json
 # 3. In Roblox Studio → Rojo plugin → Connect
 # 4. Play-test — server and client bootstrap automatically via init scripts
 ```
+
+---
+
+## Getting a tester-ready build (no Rojo plugin needed)
+
+### Option A — Download a prebuilt place from GitHub Actions (recommended)
+- Go to the repo’s **Actions** tab → open the latest **Build Roblox place** run
+- Download the artifact named `ContrabandAirways-place`
+- You’ll get `ContrabandAirways.rbxlx` (a ready-to-open Roblox Studio place file)
+
+### Option B — Build locally
+
+If you have [Aftman](https://github.com/LPGhatguy/aftman) installed, this is one command:
+
+```bash
+./scripts/build-place.sh
+```
+
+That produces `build/ContrabandAirways.rbxlx`.
+
+### Uploading to Roblox for testers
+1. Open `ContrabandAirways.rbxlx` in Roblox Studio.
+2. **File → Publish to Roblox As…** (create a new experience if needed).
+3. In **Game Settings**:
+   - Set **Privacy** to **Private** or **Unlisted**
+   - Add your testers under **Permissions**
+4. Use Roblox Studio **Test** / **Start Server** to run multiplayer playtests.
 
 ### Adding a new route
 1. Add an entry to `src/Shared/Data/RouteData.lua` following the `RouteDef` type.  

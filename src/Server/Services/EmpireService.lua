@@ -15,10 +15,9 @@
 
 local Players             = game:GetService("Players")
 local ReplicatedStorage   = game:GetService("ReplicatedStorage")
-local ServerScriptService = game:GetService("ServerScriptService")
 
 local Knit           = require(ReplicatedStorage.Packages.Knit)
-local ProfileService = require(ServerScriptService.Packages.ProfileService)
+local ProfileService = require(ReplicatedStorage.Packages.ProfileService)
 
 local ProfileTemplate = require(ReplicatedStorage.ContraBandShared.ProfileTemplate)
 local CargoData       = require(ReplicatedStorage.ContraBandShared.Data.CargoData)
@@ -412,7 +411,10 @@ end
 function EmpireService:KnitInit()
     -- Load shared empire profile
     -- "ForceLoad" is appropriate here: one server owns the empire at a time.
-    local profile = EmpireStore:LoadProfileAsync("SharedEmpire", "ForceLoad")
+    -- IMPORTANT: per-server key avoids cross-server session-lock fights.
+    -- Each server instance gets its own shared co-op empire.
+    local empireKey = "Empire_" .. game.JobId
+    local profile = EmpireStore:LoadProfileAsync(empireKey, "ForceLoad")
     if profile then
         profile:AddUserId(0)
         profile:Reconcile()
@@ -420,6 +422,24 @@ function EmpireService:KnitInit()
     else
         warn("[EmpireService] Failed to load empire profile!")
     end
+
+    -- Starter economy boost (keeps the first 10 minutes fun).
+    -- Only applies on fresh empires.
+    task.defer(function()
+        local data = self:GetEmpireData()
+        if not data or not data.Resources then return end
+
+        local isFresh = (data.Resources.BlackMoney or 0) == 0
+            and (data.Resources.Parts or 0) == 0
+            and (data.Tier or 1) == 1
+
+        if isFresh then
+            local ResourceService = Knit.GetService("ResourceService")
+            ResourceService:Add("BlackMoney", 4000)
+            ResourceService:Add("Parts", 15)
+            ResourceService:Add("Fuel", 40)
+        end
+    end)
 
     -- Migrate legacy BlackMoney into Resources.BlackMoney (one-time data migration).
     -- Existing saves may have non-zero data.BlackMoney from before the multi-resource
@@ -464,6 +484,22 @@ function EmpireService:KnitStart()
         if empireData and not empireData.UnlockedHubs["HomeBase"] then
             empireData.UnlockedHubs["HomeBase"] = true
         end
+
+        -- Send current empire snapshot to the joining player immediately.
+        if empireData then
+            self.Client.EmpireDataChanged:Fire(player, empireData)
+            self.Client.MoneyChanged:Fire(player, empireData.Resources.BlackMoney)
+        end
+
+        -- Spawn a starter plane so new testers can immediately click + run cargo.
+        task.defer(function()
+            local PlaneService = Knit.GetService("PlaneService")
+            local planeId = PlaneService:SpawnPlane("HomeBase", "BasicProp")
+            if not planeId then
+                -- Fallback to any placeholder if Runway gating hasn’t been built yet.
+                PlaneService:SpawnPlane("HomeBase", nil)
+            end
+        end)
     end)
 
     Players.PlayerRemoving:Connect(function(player: Player)

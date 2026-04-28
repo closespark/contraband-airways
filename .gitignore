@@ -1,0 +1,13 @@
+## Roblox / Rojo / Wally
+Packages/
+*.rbxl
+*.rbxlx
+*.rbxm
+*.rbxmx
+build/
+
+## Tooling
+.DS_Store
+
+## Logs
+*.log

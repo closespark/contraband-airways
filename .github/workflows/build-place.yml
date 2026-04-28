@@ -1,0 +1,36 @@
+name: Build Roblox place
+
+on:
+  workflow_dispatch: {}
+  push:
+    branches:
+      - main
+      - "copilot/**"
+  pull_request: {}
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install Aftman
+        uses: ok-nick/setup-aftman@v0.4.2
+
+      - name: Install tools
+        run: aftman install
+
+      - name: Install packages
+        run: wally install
+
+      - name: Build place
+        run: |
+          mkdir -p build
+          rojo build default.project.json -o build/ContrabandAirways.rbxlx
+
+      - name: Upload place artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ContrabandAirways-place
+          path: build/ContrabandAirways.rbxlx

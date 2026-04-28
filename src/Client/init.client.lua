@@ -9,6 +9,7 @@ require(script.Controllers.CameraController)
 require(script.Controllers.MapController)
 require(script.Controllers.CargoController)
 require(script.Controllers.BuildController)
+require(script.Controllers.UIController)
 
 Knit.Start()
     :andThen(function()
